@@ -1,0 +1,513 @@
+#get the initial distinct cohort of patients
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX fc: <http://fhircat.org/>
+
+
+INSERT {
+    GRAPH fc:emergeCohort2
+        {
+        fc:cohort fc:contains ?patient
+}
+}
+
+WHERE
+  {
+    SERVICE <http://localhost:8080//sparql>
+      {
+        SELECT DISTINCT ?patient 
+        WHERE {
+            ?patient a fhir:Patient;
+            
+        }
+        #setting a larger cohort size to test GraphDB's capability 
+        LIMIT 28000
+      }
+}
+
+#========================================================================================================
+#herpes_zoster_caseindexdt_Date
+
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+PREFIX ofn: <http://www.ontotext.com/sparql/functions/>
+
+INSERT {
+    GRAPH fc:herpes_zoster_caseindexdt_Date {
+			?patient fc:indexDate ?indexDate.
+    }
+}
+WHERE{
+    SELECT ?patient (MAX(?eventDate) AS ?indexDate)
+    WHERE {
+
+        GRAPH fc:emergeCohort2{
+            fc:cohort fc:contains ?patient
+        }
+
+        SERVICE <http://localhost:8080/sparql>{
+            
+            ?patient a fhir:Patient;
+                fhir:Resource.id [ fhir:value ?patient_id];
+                fhir:Patient.birthDate [ fhir:value ?birthdate].
+            ?condition a fhir:Condition;
+                fhir:Condition.subject [fhir:link ?patient];
+                fhir:Condition.code[                    
+                    fhir:CodeableConcept.id[fhir:value ?dxZosterCodes]];
+                fhir:Condition.onsetDateTime[fhir:value ?eventDateTime].
+
+            BIND(xsd:date(?eventDateTime) AS ?eventDate)
+            FILTER(
+                    #codes for DxHerpesZoster - OMOP CDM standardized ICD codes.
+                    ?dxZosterCodes IN('21013407','21000169','21000166','21000167','21000165','21000168','21004617','372828','443943','138682','138965','192239','373412','381504','432546','438961','440323','4045976','376028','436336','437489','440329','35607128','36110918','36110920','35406348','36109991','36110924','36718098')
+                    #codes for DxVaricellaZoster -  OMOP CDM standardized ICD codes.
+                    || ?dxZosterCodes IN ('21007278','256036','380322','434272','437791','36009875','36110929','36110930')
+            )
+
+        }      
+        
+        BIND((ofn:years-from-duration(?eventDate- ?birthdate)) AS ?time)
+        FILTER(?time>=40)
+    } 
+    GROUP BY ?patient
+}
+    
+
+
+#=================================================================================================================================================
+#herpes_zoster_c00_age
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+
+INSERT {
+    GRAPH fc:herpes_zoster_c00_age {
+			?patient fc:age ?age.
+    }
+}
+
+    WHERE {
+    GRAPH fc:emergeCohort2{
+        fc:cohort fc:contains ?patient
+    }
+	
+    SERVICE <http://localhost:8080/sparql>
+        
+        { 
+            ?patient a fhir:Patient;
+            fhir:Resource.id [ fhir:value ?patient_id];
+			fhir:Patient.birthDate [ fhir:value ?birthdate].
+
+    } 
+#obtain the year of birth and the current year and calculate the age
+    BIND ((xsd:integer(SUBSTR(STR(NOW()), 1, 4)) - xsd:integer(SUBSTR(STR(?birthdate), 1, 4))) AS ?age )
+    } 
+
+
+#==============================================================================================================================================
+#herpes_zoster_c01_dxZosterCnt
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+
+INSERT {
+    GRAPH fc:herpes_zoster_c01_dxZosterCnt {
+			?patient fc:datecount ?datecount.
+    }
+}
+
+    WHERE {
+
+    GRAPH fc:emergeCohort2{
+        fc:cohort fc:contains ?patient
+    }
+
+
+    SERVICE <http://localhost:8080/sparql>
+        {
+        SELECT ?patient (count(distinct ?eventDate) AS ?datecount)
+
+       WHERE {
+        ?patient a fhir:Patient;
+            fhir:Resource.id [ fhir:value ?patient_id].
+             ?condition a fhir:Condition;
+            fhir:Condition.subject [fhir:link ?patient];
+            fhir:Condition.code[                    
+                    fhir:CodeableConcept.id[fhir:value ?dxZosterCodes]];
+            fhir:Condition.onsetDateTime[fhir:value ?eventDateTime].
+
+            BIND(xsd:date(?eventDateTime) AS ?eventDate)
+        #getting patients with matching conditions in DxHerpesZoster or DxVaricellaZoster
+            FILTER(
+                #codes for DxHerpesZoster - OMOP CDM standardized ICD codes.
+                ?dxZosterCodes IN('21013407','21000169','21000166','21000167','21000165','21000168','21004617','372828','443943','138682','138965','192239','373412','381504','432546','438961','440323','4045976','376028','436336','437489','440329','35607128','36110918','36110920','35406348','36109991','36110924','36718098')
+ 				#codes for DxVaricellaZoster -  OMOP CDM standardized ICD codes.
+                || ?dxZosterCodes IN ('21007278','256036','380322','434272','437791','36009875','36110929','36110930')
+)
+
+        }
+          GROUP BY ?patient
+
+    } 
+    } 
+
+
+#==============================================================================================================================================
+#herpes_zoster_c02_dxZosterForCaseCnt
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+PREFIX ofn: <http://www.ontotext.com/sparql/functions/>
+
+INSERT {
+    GRAPH fc:herpes_zoster_c02_dxZosterForCaseCnt {
+			?patient fc:datecount ?datecount.
+    }
+}
+WHERE{
+SELECT ?patient (count(distinct(?eventDate)) AS ?datecount)
+
+       WHERE {  
+
+    GRAPH fc:emergeCohort2{
+        fc:cohort fc:contains ?patient
+    }
+
+
+    SERVICE <http://localhost:8080/sparql>
+        {
+        
+        ?patient a fhir:Patient;
+			fhir:Patient.birthDate [ fhir:value ?birthdate];
+            fhir:Resource.id [ fhir:value ?patient_id].
+             ?condition a fhir:Condition;
+            fhir:Condition.subject [fhir:link ?patient];
+            fhir:Condition.code[                    
+                    fhir:CodeableConcept.id[fhir:value ?dxZosterCodes]];
+            fhir:Condition.onsetDateTime[fhir:value ?eventDateTime].
+
+            BIND(xsd:date(?eventDateTime) AS ?eventDate)
+        #getting patients with matching conditions in DxHerpesZoster or DxVaricellaZoster
+            FILTER(
+                #codes for DxHerpesZoster - OMOP CDM standardized ICD codes
+                ?dxZosterCodes IN('21013407','21000169','21000166','21000167','21000165','21000168','21004617','372828','443943','138682','138965','192239','373412','381504','432546','438961','440323','4045976','376028','436336','437489','440329','35607128','36110918','36110920','35406348','36109991','36110924','36718098')
+ 				#codes for DxVaricellaZoster - OMOP CDM standardized ICD codes.
+                || ?dxZosterCodes IN ('21007278','256036','380322','434272','437791','36009875','36110929','36110930')
+)
+    #getting the patients with age greater than or equal to 40 when the condition was diagnosed
+            
+        
+        }
+        BIND((ofn:years-from-duration(?eventDate- ?birthdate)) AS ?time)
+    FILTER(?time>=40)
+         
+
+    }  GROUP BY ?patient
+     
+}
+
+
+#==============================================================================================================================================
+#herpes_zoster_c03_00_dxZosterForCaseCnt
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+
+#setting up the temporary graph to store the visit year of the patients to be used in c03
+INSERT {
+    GRAPH fc:herpes_zoster_c03_00_ph_herpeszostertmpvisityear {
+			?patient fc:visitYear ?visitYear.
+    }
+}
+WHERE {
+SELECT DISTINCT ?patient ?visitYear 
+    WHERE {
+    
+    GRAPH fc:emergeCohort2{
+        fc:cohort fc:contains ?patient
+    }
+
+    SERVICE <http://localhost:8080/sparql> {
+        SELECT ?patient ?visitYear 
+        WHERE {
+            ?patient a fhir:Patient;
+                     fhir:Patient.birthDate [fhir:value ?birthdate];
+                     fhir:Resource.id [fhir:value ?patient_id].
+            ?encounter a fhir:Encounter;
+                       fhir:Encounter.subject [fhir:link ?patient];
+            fhir:Encounter.period [fhir:Period.start [fhir:value ?eventDate]].
+        #filter for encounter cases that have values in date
+			FILTER(BOUND(?eventDate))
+        #filter for patients who are at least 35 years old when the encounter occurred
+            FILTER ((xsd:integer(SUBSTR(STR(?eventDate), 1, 4)) - xsd:integer(SUBSTR(STR(?birthdate), 1, 4))) >= 35)
+        #assign the year to the visitYear variable
+			BIND (xsd:integer(SUBSTR(STR(?eventDate), 1, 4)) AS ?visitYear)
+        }
+            
+          
+    } 
+      
+
+}  GROUP BY ?patient ?visitYear 
+    }
+
+
+#--------------------------------------------------------------------------------------------
+#herpes_zoster_c03
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+
+#getting the patients with continuous visits for 5 years and the unique visit start year
+INSERT {
+    GRAPH fc:herpes_zoster_c03{
+			?patient fc:visit_sequence ?sequence_start.
+    }
+}
+where{
+SELECT ?patient (count(distinct(?v1)) as ?sequence_start)
+Where { 
+    GRAPH fc:herpes_zoster_c03_00_ph_herpeszostertmpvisityear {
+			?patient fc:visitYear ?v1.
+    }
+    BIND ((?v1+1) AS ?v2)
+    ?patient fc:visitYear ?v2.
+     BIND ((?v2+1) AS ?v3)
+    ?patient fc:visitYear ?v3.
+    BIND ((?v3+1) AS ?v4)
+    ?patient fc:visitYear ?v4.
+    BIND ((?v4+1) AS ?v5)
+    ?patient fc:visitYear ?v5.
+}
+# ?v5 - ?v1 = 4
+GROUP BY ?patient
+}
+#==============================================================================================================================================
+#herpes_zoster_c04_dxHivCnt
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+
+INSERT {
+    GRAPH fc:herpes_zoster_c04_dxHivCnt {
+			?patient fc:datecount ?datecount.
+    }
+}
+    WHERE {
+    GRAPH fc:emergeCohort2{
+        fc:cohort fc:contains ?patient
+    }
+
+    SERVICE <http://localhost:8080/sparql>
+        {
+        SELECT ?patient (count(distinct ?eventDate) AS ?datecount)
+
+       WHERE {
+        ?patient a fhir:Patient;
+			fhir:Patient.birthDate [ fhir:value ?birthdate];
+            fhir:Resource.id [ fhir:value ?patient_id].
+             ?condition a fhir:Condition;
+            fhir:Condition.subject [fhir:link ?patient];
+            fhir:Condition.code[                    
+                    fhir:CodeableConcept.id[fhir:value ?dxHiv]];
+            fhir:Condition.onsetDateTime[fhir:value ?eventDateTime].
+            BIND(xsd:date(?eventDateTime) AS ?eventDate)
+
+            #getting patients with matching conditions in DxHiv(HIV infection) using OMOP CDM standardized ICD codes.
+            FILTER(
+                ?dxHiv IN('21000158','21000160','21000161','21000162','21000397','21000885','21004037','21004839','21007238','21007244','21007245','21007278','21013495','21013812','40249000','439727','36009928')		
+)
+     
+        }
+          GROUP BY ?patient
+    } 
+    } 
+
+#==============================================================================================================================================
+#herpes_zoster_c05_dxMarrowCancerCnt
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+PREFIX ofn: <http://www.ontotext.com/sparql/functions/>
+
+#getting the distinct patients with the count of the number of times they were diagnosed with Marrow Cancer within a year of the index date.
+INSERT {
+    GRAPH fc:herpes_zoster_c05_dxMarrowCancerCnt {
+			?patient fc:datecount ?datecount.
+    }
+}
+
+WHERE{
+ SELECT  ?patient (count(distinct ?eventDate) AS ?datecount) 
+
+    WHERE {
+
+    GRAPH fc:emergeCohort2{
+        fc:cohort fc:contains ?patient
+    }
+    GRAPH fc:herpes_zoster_caseindexdt_Date {
+		?patient fc:indexDate ?indexDate.
+
+    }
+    SERVICE <http://localhost:8080/sparql>
+        {
+		
+        ?patient a fhir:Patient;
+            fhir:Resource.id [ fhir:value ?patient_id].
+             ?condition a fhir:Condition;
+            fhir:Condition.subject [fhir:link ?patient];
+            fhir:Condition.code[                    
+                    fhir:CodeableConcept.id[fhir:value ?dxMarrowCancer_codes]];
+            fhir:Condition.onsetDateTime[fhir:value ?eventDateTime].
+            BIND(xsd:date(?eventDateTime) AS ?eventDate)
+
+            #getting patients with matching conditions in dxMarrowCancer_codes(cancer of the bone marrow) using OMOP CDM standardized ICD codes.
+            FILTER(
+                ?dxMarrowCancer_codes IN ('21000458','21000481','21000486','21000492','21003398','21011867','21013405','21013418','43534923','21000473','21000474','21000484','21013769','21000493','21000494','21013409','21013410','21000489','21000490','21008923','21013537','21013538','21013661','21013946','21000477','21000482','21013939','21000483','21013699','21000487','21000488','21013403','21013687','21013688','21000471','21000479','21000485','40248985','21000475','21000495','21002917','132575','132852','132853','133154','133158','134305','134597','134603','134879','135214','135499','135496','135764','135766','135768','136056','136367','136656','136655','136928','136930','138099','138377','138379','138708','140057','140352','140663','140666','140672','140967','141243','141524','141814','192268','193157','193429','193427','193434','194593','194594','194876','195196','195761','196355','196363','196650','197816','198381','198372','198704','198710','198986','199760','200355','200662','201242','201811','201813','313159','313430','313980','314600','315202','315497','315763','316356','316649','317510','318989','320049','320337','321522','321526','373152','432267','432571','433161','433156','434299','434302','434599','434595','434877','434881','435203','435494','436362','436652','436920','437233','437817','438373','438703','438709','439282','439281','439285','439291','439761','440059','440351','440354','440964','440965','441235','441523','442092','442093','442094','442095','442144','442145','442150','442151','442153','442152','442155','442154','442146','442156','442162','442163','442160','442157','442158','442161','442159','442169','442168','444465','444466','444467','4038841','4038835','4038842','4038839','4038840','4038843','4040379','4041104','4041797','4041798','4041800','4041799','4082488','4143848','4149840','4247726','4278365','40481901','40490918','134596','135759','135765','135762','138378','139759','140664','192270','192265','193721','194878','195195','195201','195760','196058','197232','198088','198098','198374','198707','199762','200338','200349','200660','200659','318382','318697','320347','321815','435200','435193','435495','435492','435758','436059','436651','436929','437505','437818','439267','439265','439270','440058','440957','441241','441525','441812','442128','4038838','4040380','4091930','4097579','4138466','132850','135204','197509','4139054','4143382','4245460','132841','133438','137512','192560','197511','198705','200343','200667','434601','435207','435753','438106','438698','440350','441245','441521','4091914','4091905','4094541','4094542','4096967','4096968','4097571','4121332','4173971','132572','141816','193428','196055','315481','444440','434592','443719','135194','197228','198702','201807','201810','433426','438376','441803','4091768','4097561','4097560','40479608','40482893','437504','438380','4096955','432574','40481357','443743','35104227','35104237','35104239','35104246','35104255','35104323','35104325','35104326','35104336','35104347','35104337','35104341','35104339','35104349','35104350','35104348','35104351','35104358','35104357','35104356','35104353','35104374','35104359','35104366','35104364','35104378','35104382','35104385','35104390','35104386','35104392','35104391','35104395','35104405','35104408','35104409','35104410','35104411','35104421','35104422','35104432','35104433','35104423','35104443','35104442','35104434','35104452','35104444','35104453','35104457','35104454','35104461','35104464','35104465','35104483','35104490','35104532','35104583','35104618','35104624','35104625','35104643','35104665','35104666','35104667','4136153','4172372','4233385','35104245','35104352','35104383','35104396','35104471','35104469','35104468','35104470','35104489','35104494','35104493','35104496','35104495','35104539','35104646','35104648','35104649','35104393','35104365','35104340','35104379','35104487','35104486','35104488','35104560','35104497','35104647')
+)
+        
+         
+    }
+        FILTER((ofn:daysBetween(?indexDate,?eventDate) <=365  ) &&(?indexDate >= ?eventDate))
+
+    } 
+    GROUP BY ?patient 
+}
+
+
+#==============================================================================================================================================
+#herpes_zoster_c06_procChemoCnt
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+PREFIX ofn: <http://www.ontotext.com/sparql/functions/>
+
+#getting the distinct patients with the count of the number of times they had chemotherapy within 180 days of the index date
+INSERT {
+    GRAPH fc:herpes_zoster_c06_procChemoCnt {
+			?patient fc:datecount ?datecount.
+    }
+}
+
+WHERE{
+ SELECT ?patient (count(distinct ?eventDate) AS ?datecount) 
+    WHERE {
+
+    GRAPH fc:emergeCohort2{
+        fc:cohort fc:contains ?patient
+    }
+    GRAPH fc:herpes_zoster_caseindexdt_Date {
+		?patient fc:indexDate ?indexDate.
+
+    }
+
+
+    SERVICE <http://localhost:8080/sparql>
+        {
+	
+        ?patient a fhir:Patient;
+            fhir:Resource.id [ fhir:value ?patient_id].
+            ?Procedure a fhir:Procedure;
+                  fhir:Procedure.subject [fhir:link ?patient];
+                  fhir:Procedure.performedDateTime[fhir:value ?eventDateTime];
+                  fhir:Procedure.code [
+                            fhir:CodeableConcept.id[fhir:value ?procChemo_codes]].
+            BIND(xsd:date(?eventDateTime) AS ?eventDate)
+
+            #getting patients with matching procedure of procChemo_codes(cancer chemotherapy infusion) using OMOP CDM standardized ICD, UB-04, G, CPT, CPT_HCPCS codes.
+            FILTER(
+                ?procChemo_codes IN ('2314231','2314227','2314229','2314225','2314220','2314221','2314222','2314223','2314233','2314236','2314237','2314232','2314240','2314238','2314235','2314234','2314246','2314248','2314257','2314255','2314256','42732724','42732725','42732723','42732722','42738941','42739887','42738932','42738936','2110448','2000011','2008271','2616278','2616276','2616277','2617778','2617779','2617781','2617780','2720578','2720576','2720574','2720577','2721477','2721478','2721476')
+            )
+         
+    }
+	FILTER(ofn:daysBetween(?indexDate,?eventDate) <=180  && (?indexDate>=?eventDate))
+    } 
+    GROUP BY ?patient 
+}
+
+
+#==============================================================================================================================================
+#ph_herpeszosterphenotype_pCtrl_emerge2
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fhir: <http://hl7.org/fhir/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX w5: <http://hl7.org/fhir/w5#>
+PREFIX example: <http://example.org/>
+PREFIX example_graph: <http://example.org/graphs/>
+PREFIX fc: <http://fhircat.org/>
+
+#filter the patients who meet the criteria for the control group
+INSERT {
+    GRAPH fc:ph_herpeszosterphenotype_pCtrl_emerge2{
+        fc:pCtrl fc:control_patient ?patient .
+    }
+}
+WHERE{
+SELECT DISTINCT ?patient
+WHERE{
+
+     {GRAPH fc:herpes_zoster_c00_age  { ?patient fc:age ?c00. } 
+            filter(?c00 >=40)
+    }
+  #look for patients who also exsits in c03
+    FILTER EXISTS{ { GRAPH fc:herpes_zoster_c03   { ?patient fc:visit_sequence ?c03.} FILTER(?c03 >=1)  }}
+  #look for patients who do not have a c04 value thats larger and equal to 2
+    FILTER NOT EXISTS{  {  GRAPH fc:herpes_zoster_c04_dxHivCnt   { ?patient fc:datecount ?c04.}  FILTER(?c04>=2)}}
+  #look for patients who do not exist in c01
+    FILTER NOT EXISTS  {GRAPH fc:herpes_zoster_c01_dxZosterCnt {?patient fc:datecount ?c01.}}
+
+        }
+  
+}
+
+#==============================================================================================
